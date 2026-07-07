@@ -313,7 +313,7 @@ const S={
   img:null, imgB64:null, imgMime:'image/jpeg',
   logImg:null, logImgB64:null, logImgMime:'image/jpeg',
   extracting:false, extracted:false, submitting:false,
-  filter:'all', catFilter:'all', logFilter:'all', logSocioFilter:'all',
+  filter:'all', catFilter:'all', logFilter:'all', logSocioFilter:'all', logMonth:'all',
   panelAc:'all', panelSocio:'all', panelView:'expenses', panelLogMonth:'all', panelExpMonth:'all',
   identity:null, identityLoading:true, adminPinMode:false, pinMode:false, pinTarget:null,
   editingExpId:null, editingLogId:null, simulatingSocio:null, unattModal:false,
@@ -943,6 +943,7 @@ function setFilter(f){S.filter=f;render();}
 function setCatF(f){S.catFilter=S.catFilter===f?'all':f;render();}
 function setLogFilter(f){S.logFilter=f;render();}
 function setLogSocioFilter(v){S.logSocioFilter=v;render();}
+function setLogMonth(m){S.logMonth=m;render();}
 function setPanelAc(v){S.panelAc=v;render();}
 function setPanelSocio(v){S.panelSocio=S.panelSocio===v?'all':v;render();}
 function setPanelView(v){S.panelView=v;render();}
@@ -1470,7 +1471,11 @@ function render(){
   else h+=rSets();
   h+='</div>';
   h+='<nav class="bottomnav">';
-  const tabs=[['new','&#43;','Novo'],['history','&#128203;','Despesas'],['logbook','&#9992;','Diario'],['panel','&#128202;','Painel'],['settings','&#9881;','Config.']];
+  const isSocioView=S.identity?.role==='socio'||!!S.simulatingSocio;
+  const allTabs=[['new','&#43;','Novo'],['history','&#128203;','Despesas'],['logbook','&#9992;','Diario'],['panel','&#128202;','Painel'],['settings','&#9881;','Config.']];
+  const tabs=isSocioView?allTabs.filter(function(t){return t[0]==='logbook'||t[0]==='panel';}):allTabs;
+  // Redirecionar sócio se estiver em aba restrita
+  if(isSocioView&&S.tab!=='logbook'&&S.tab!=='panel')S.tab='logbook';
   tabs.forEach(function(t){h+='<button class="navbtn'+(S.tab===t[0]?' on':'')+'" data-tab="'+t[0]+'" onclick="setTab(this.dataset.tab)"><span class="ni">'+t[1]+'</span><span>'+t[2]+'</span></button>';});
   h+='</nav></div>';
   // Modal nao atribuido
@@ -1789,20 +1794,33 @@ function rHist(){
 function rLog(){
   const base=forRole(logbook);
   const isSocio=S.identity?.role==='socio';
-  const canAdd=S.identity&&(S.identity.role==='admin'||S.identity.role==='pilot');
+  const isSocioView=S.identity?.role==='socio'||!!S.simulatingSocio;
+  const canAdd=!isSocioView&&S.identity&&(S.identity.role==='admin'||S.identity.role==='pilot');
   let filt=base;
   if(S.logFilter!=='all')filt=filt.filter(function(x){return x.aircraft===S.logFilter;});
-  if(!isSocio&&S.logSocioFilter!=='all')filt=filt.filter(function(x){return (x.passenger||'')===S.logSocioFilter;});
+  if(S.logMonth!=='all')filt=filt.filter(function(x){return (x.date||'').startsWith(S.logMonth);});
+  if(!isSocio&&S.logSocioFilter!=='all'){if(S.logSocioFilter==='__todos__')filt=filt.filter(function(x){return (x.passenger||'')==='__todos__';});else filt=filt.filter(function(x){return (x.passenger||'')===S.logSocioFilter;});}
   const canDel=canAdd;
   let h=isSocio?'<div style="background:#EEF4FC;border:1.5px solid #C8D8F0;border-radius:10px;padding:10px 14px;font-size:12px;color:#1A4DAA;margin-bottom:12px;display:flex;align-items:center;gap:8px">&#128274; Voce esta vendo apenas os registros onde aparece como passageiro</div>':'';
   if(canAdd)h+='<button class="submit-btn" style="margin-bottom:14px" onclick="setTab('+"'new'"+');setNewType('+"'log'"+')">&plus; Novo registro de voo</button>';
-  h+='<div class="stats-row"><div class="stat-card"><div class="sl">Total</div><div class="sv">'+base.length+'</div><div class="ss">voos registrados</div></div>';
+  const totalLogMins=sumMins(filt);
+  const totalLogH=Math.floor(totalLogMins/60),totalLogM=totalLogMins%60;
+  const totalLogStr=totalLogMins>0?(totalLogH>0?totalLogH+'h ':'')+(totalLogM>0?totalLogM+'min':''):'--';
+  h+='<div class="stats-row"><div class="stat-card"><div class="sl">Total</div><div class="sv">'+filt.length+'</div><div class="ss">voos registrados</div></div>'
+    +'<div class="stat-card"><div class="sl">Horas de voo</div><div class="sv">'+totalLogStr+'</div><div class="ss">tempo total</div></div>';
   if(cfg.ac.length>1)cfg.ac.forEach(function(a){const ax=base.filter(function(x){return x.aircraft===a.id;});h+='<div class="stat-card"><div class="sl">'+esc(a.name)+'</div><div class="sv">'+ax.length+'</div><div class="ss">voos</div></div>';});
   h+='</div>';
   if(cfg.ac.length>1){h+='<div class="filter-bar"><button class="filter-chip'+(S.logFilter==='all'?' on':'')+'" data-f="all" onclick="setLogFilter(this.dataset.f)">Todas aeronaves</button>';
   cfg.ac.forEach(function(a){h+='<button class="filter-chip'+(S.logFilter===a.id?' on':'')+'" data-f="'+a.id+'" onclick="setLogFilter(this.dataset.f)">'+esc(a.name)+'</button>';});
   h+='</div>';}
-  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.logSocioFilter==='all'?' on':'')+'" data-s="all" onclick="setLogSocioFilter(this.dataset.s)">Todos socios</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.logSocioFilter===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setLogSocioFilter(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
+  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.logSocioFilter==='all'?' on':'')+'" data-s="all" onclick="setLogSocioFilter(this.dataset.s)">Todos os voos</button><button class="filter-chip'+(S.logSocioFilter==='__todos__'?' on':'')+'" data-s="__todos__" onclick="setLogSocioFilter(this.dataset.s)">&#11088; Todos socios</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.logSocioFilter===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setLogSocioFilter(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
+  // Chips de mes
+  const logMonths=[...new Set(base.map(function(x){return (x.date||'').slice(0,7);}).filter(Boolean))].sort().reverse();
+  if(logMonths.length>1){
+    h+='<div class="filter-bar"><button class="filter-chip'+(S.logMonth==='all'?' on':'')+'" data-m="all" onclick="setLogMonth(this.dataset.m)">Todos os meses</button>';
+    logMonths.forEach(function(m){const p=m.split('-');const lbl=MONTH_AB[parseInt(p[1],10)-1]+'/'+p[0].slice(2);h+='<button class="filter-chip'+(S.logMonth===m?' on':'')+'" data-m="'+m+'" onclick="setLogMonth(this.dataset.m)">'+lbl+'</button>';});
+    h+='</div>';
+  }
   if(!filt.length){h+='<div class="empty"><div class="ei">&#9992;&#65039;</div><h3>Nenhum registro</h3><p>Adicione voos na aba Novo &gt; Diario de Bordo</p></div>';}
   else{
     filt.forEach(function(x){
@@ -1860,8 +1878,8 @@ function rPanelExp(){
     h+='<div class="kcard kblue"><div class="kl">Total geral</div><div class="kv">'+fmtR(sumR(filtered))+'</div><div class="ks">'+filtered.length+' titulo'+(filtered.length!==1?'s':'')+'</div></div>';
     h+='<div class="kcard"><div class="kl">Este mes</div><div class="kv">'+fmtR(sumR(thisMoList))+'</div><div class="ks">'+thisMoList.length+' titulo'+(thisMoList.length!==1?'s':'')+'</div></div>';
     h+='</div>';
-    // Reconciliacao (so para admin)
-    if(!isSocio&&cfg.socios.length){
+    // Reconciliacao (so para admin, nunca para socio ou simulacao)
+    if(!isSocio&&!S.simulatingSocio&&cfg.socios.length){
       const unatt=unattributedTotal(filtered);
       h+='<div class="card"><div class="card-title">&#9878; Reconciliacao por socio</div>';
       cfg.socios.forEach(function(s){
