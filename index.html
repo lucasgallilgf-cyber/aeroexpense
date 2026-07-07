@@ -75,6 +75,14 @@ html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSys
 .cam-tip p{font-size:13px;color:var(--muted);line-height:1.5}
 .preview{position:relative;border-radius:12px;overflow:hidden;margin-bottom:10px}
 .preview img{width:100%;max-height:180px;object-fit:cover;display:block;cursor:pointer}
+.unatt-modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:flex-end;justify-content:center}
+.unatt-modal{background:var(--bg);border-radius:18px 18px 0 0;width:100%;max-width:520px;max-height:80vh;display:flex;flex-direction:column;padding:0}
+.unatt-modal-hdr{display:flex;justify-content:space-between;align-items:center;padding:16px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.unatt-modal-title{font-size:15px;font-weight:700;color:var(--navy)}
+.unatt-modal-body{overflow-y:auto;padding:12px 14px;flex:1}
+.unatt-item{background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.unatt-item:last-child{margin-bottom:0}
+.unatt-why{display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:5px;background:#FEE2E2;color:#B91C1C;margin-top:5px}
 .pdf-preview{background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:18px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
 .pdf-icon{font-size:36px;flex-shrink:0}
 .pdf-info{flex:1;min-width:0}
@@ -308,7 +316,7 @@ const S={
   filter:'all', catFilter:'all', logFilter:'all', logSocioFilter:'all',
   panelAc:'all', panelSocio:'all', panelView:'expenses', panelLogMonth:'all', panelExpMonth:'all',
   identity:null, identityLoading:true, adminPinMode:false, pinMode:false, pinTarget:null,
-  editingExpId:null, editingLogId:null, simulatingSocio:null,
+  editingExpId:null, editingLogId:null, simulatingSocio:null, unattModal:false,
   form:{description:'',supplier:'',invoiceNo:'',amount:'',date:'',installments:'1',rateioMode:false,rateio:{},category:'',aircraft:'',pilot:'',passenger:'',notes:''},histMonth:'all',
   logForm:{date:'',departureFrom:'',departureTime:'',arrivalTo:'',arrivalTime:'',aircraft:'',pilot:'',passenger:'',notes:''}
 };
@@ -1033,6 +1041,18 @@ function removeCat(name){cfg.categories=cfg.categories.filter(function(c){return
 function restoreDefaultCats(){DEFAULT_CATS.forEach(function(c){if(!cfg.categories.includes(c))cfg.categories.push(c);});saveSharedConfig();refreshCatList();}
 
 /* ===== EXPORT ===== */
+function getFilteredExpenses(){
+  let list=forRole(expenses);
+  if(S.filter!=='all')list=list.filter(function(x){return x.aircraft===S.filter;});
+  if(S.catFilter!=='all')list=list.filter(function(x){return (x.category||'')===S.catFilter;});
+  if(S.histMonth!=='all')list=list.filter(function(x){return (x.dueDate||x.date||'').startsWith(S.histMonth);});
+  return list.slice().sort(function(a,b){return (a.dueDate||a.date||'').localeCompare(b.dueDate||b.date||'');});
+}
+function getExportLabel(){
+  if(S.histMonth==='all')return 'todas';
+  const p=S.histMonth.split('-');return MONTH_AB[parseInt(p[1],10)-1]+'-'+p[0];
+}
+
 function buildCSVStr(rows){return '\ufeff'+rows.map(function(r){return r.map(function(v){return '"'+String(v).replace(/"/g,'""')+'"';}).join(';');}).join('\r\n');}
 function dlCSV(content,fname){
   const blob=new Blob([content],{type:'text/csv;charset=utf-8;'});
@@ -1040,10 +1060,11 @@ function dlCSV(content,fname){
   document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);toast('CSV exportado!');
 }
 function exportExpenseCSV(){
-  const list=forRole(expenses);
+  const list=getFilteredExpenses();
+  const label=getExportLabel();
   const rows=[['Data','Descricao','Fornecedor','Nota Fiscal / Doc','Categoria','Valor (R$)','Aeronave','Piloto','Socio / Passageiro','Observacoes']].concat(
-    list.map(function(x){return[fmtD(x.date),x.description||'',x.supplier||'',x.invoiceNo||'',x.category||'',(parseFloat(x.amount)||0).toFixed(2).replace('.',','),acLbl(x.aircraft),x.pilot||'',x.passenger||'',x.notes||''];}));
-  dlCSV(buildCSVStr(rows),'despesas-voo-'+td()+'.csv');
+    list.map(function(x){return[fmtD(x.dueDate||x.date),x.description||'',x.supplier||'',x.invoiceNo||'',x.category||'',(parseFloat(x.amount)||0).toFixed(2).replace('.',','),acLbl(x.aircraft),x.pilot||'',x.passenger||'',x.notes||''];}));
+  dlCSV(buildCSVStr(rows),'despesas-'+label+'.csv');
 }
 function exportLogCSV(){
   const list=forRole(logbook);
@@ -1063,7 +1084,8 @@ async function exportExpensePackage(){
     await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
     await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
     const zip=new JSZip(),comprov=zip.folder('comprovantes');
-    const list=forRole(expenses);
+    const list=getFilteredExpenses();
+    const label=getExportLabel();
     const hdr=['Data','Descricao','Fornecedor','Nota Fiscal / Doc','Categoria','Valor (R$)','Aeronave','Piloto','Socio / Passageiro','Observacoes','Comprovante'];
     const aoa=[hdr];
     list.forEach(function(x){aoa.push([fmtD(x.date),x.description||'',x.supplier||'',x.invoiceNo||'',x.category||'',parseFloat(x.amount)||0,acLbl(x.aircraft),x.pilot||'',x.passenger||'',x.notes||'',x.photo?'Ver comprovante':'']);});
@@ -1073,7 +1095,7 @@ async function exportExpensePackage(){
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Despesas');
     const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});zip.file('relatorio-despesas.xlsx',out);
     const blob=await zip.generateAsync({type:'blob'});
-    const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='aeroexpense-despesas-'+td()+'.zip';
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='aeroexpense-despesas-'+label+'.zip';
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);toast('Pacote exportado!');
   }catch(err){console.error(err);toast('Erro ao gerar pacote');}
 }
@@ -1238,6 +1260,26 @@ function unattributedTotal(list){
   const attributed=cfg.socios.reduce(function(s,name){return s+socioTotal(name,list);},0);
   return Math.max(0,total-attributed);
 }
+
+function getUnattributedList(list){
+  return list.filter(function(x){
+    const amt=parseFloat(x.amount)||0;
+    if(amt<0.01)return false;
+    let attributed=0;
+    cfg.socios.forEach(function(name){
+      const pass=x.passenger||'';
+      if(pass===name){attributed+=amt;return;}
+      if(pass==='__todos__'){attributed+=amt/Math.max(1,cfg.socios.length);return;}
+      if(x.rateio&&x.rateio.length){
+        const r=x.rateio.find(function(r){return r.name===name;});
+        if(r)attributed+=amt*(parseFloat(r.percent)||0)/100;
+      }
+    });
+    return (amt-attributed)>0.01;
+  });
+}
+function openUnattModal(){S.unattModal=true;render();}
+function closeUnattModal(){S.unattModal=false;render();}
 
 function catColor(cat){const i=cfg.categories.indexOf(cat);return CAT_COLORS[i>=0?i%CAT_COLORS.length:7];}
 function setPanelExpMonth(m){S.panelExpMonth=m;render();}
@@ -1431,6 +1473,41 @@ function render(){
   const tabs=[['new','&#43;','Novo'],['history','&#128203;','Despesas'],['logbook','&#9992;','Diario'],['panel','&#128202;','Painel'],['settings','&#9881;','Config.']];
   tabs.forEach(function(t){h+='<button class="navbtn'+(S.tab===t[0]?' on':'')+'" data-tab="'+t[0]+'" onclick="setTab(this.dataset.tab)"><span class="ni">'+t[1]+'</span><span>'+t[2]+'</span></button>';});
   h+='</nav></div>';
+  // Modal nao atribuido
+  if(S.unattModal){
+    let allExp=forRole(expenses);
+    if(S.panelAc!=='all')allExp=allExp.filter(function(x){return x.aircraft===S.panelAc;});
+    if(S.panelSocio!=='all')allExp=allExp.filter(function(x){return (x.passenger||'')===S.panelSocio;});
+    const uList=getUnattributedList(allExp);
+    h+='<div class="unatt-modal-overlay" onclick="closeUnattModal()">'
+      +'<div class="unatt-modal" onclick="event.stopPropagation()">'
+      +'<div class="unatt-modal-hdr">'
+      +'<div class="unatt-modal-title">&#9888;&#65039; Lancamentos sem socio ('+uList.length+')</div>'
+      +'<button onclick="closeUnattModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1">&#10005;</button>'
+      +'</div>'
+      +'<div class="unatt-modal-body">';
+    if(!uList.length){
+      h+='<div class="empty" style="padding:24px 0"><div class="ei">&#10003;</div><h3>Tudo atribuido!</h3></div>';
+    }else{
+      uList.forEach(function(x){
+        const isPartial=x.rateio&&x.rateio.length;
+        const pctSum=isPartial?x.rateio.reduce(function(s,r){return s+(parseFloat(r.percent)||0);},0):0;
+        const why=isPartial?'Rateio incompleto ('+Math.round(pctSum)+'%)':'Sem socio atribuido';
+        h+='<div class="unatt-item">'
+          +'<div style="flex:1;min-width:0">'
+          +'<div style="font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(x.description)+'</div>'
+          +'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmtD(x.dueDate||x.date)+' &middot; '+esc(x.category||'')+'</div>'
+          +'<span class="unatt-why">'+why+'</span>'
+          +'</div>'
+          +'<div style="text-align:right;flex-shrink:0">'
+          +'<div style="font-size:15px;font-weight:700;color:#B91C1C">'+fmtR(x.amount)+'</div>'
+          +'<button class="mbtn" style="margin-top:6px;font-size:13px" data-id="'+x.id+'" onclick="closeUnattModal();openEdit(this.dataset.id)">&#9998; Editar</button>'
+          +'</div>'
+          +'</div>';
+      });
+    }
+    h+='</div></div></div>';
+  }
   root.innerHTML=h;
   if(S.img&&S.tab==='new'&&S.newType==='expense'){const im=document.getElementById('_img');if(im){im.src=S.img;im.onclick=function(){openPhotoViewer(S.img);};}}
   if(S.logImg&&S.tab==='new'&&S.newType==='log'){const im=document.getElementById('_logimg');if(im){im.src=S.logImg;im.onclick=function(){openPhotoViewer(S.logImg);};}}
@@ -1795,7 +1872,7 @@ function rPanelExp(){
       });
       if(unatt>0.01){
         const upct=sumR(filtered)>0?Math.round(unatt/sumR(filtered)*100):0;
-        h+='<div class="chart-item"><div class="chart-hdr"><span class="chart-lbl" style="color:var(--red)">Nao atribuido</span><span class="chart-val" style="color:var(--red)">'+fmtR(unatt)+'</span></div>'
+        h+='<div class="chart-item" onclick="openUnattModal()" style="cursor:pointer" title="Toque para ver os lancamentos"><div class="chart-hdr"><span class="chart-lbl" style="color:var(--red)">&#9888; Nao atribuido</span><span style="display:flex;align-items:center;gap:6px"><span class="chart-val" style="color:var(--red)">'+fmtR(unatt)+'</span><span style="font-size:11px;color:var(--red);font-weight:600">Ver &rsaquo;</span></span></div>'
           +'<div class="chart-track"><div class="chart-fill" style="width:'+upct+'%;background:var(--red)"></div></div></div>';
       }else{
         h+='<div style="font-size:12px;color:#2E7D32;margin-top:8px;text-align:center">&#10003; 100% atribuido aos socios</div>';
