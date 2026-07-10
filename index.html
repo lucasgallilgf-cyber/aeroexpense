@@ -954,9 +954,9 @@ function selCat(c){
   document.querySelectorAll('.cchip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.cat===S.form.category);});
 }
 function selPilot(name){S.form.pilot=name;const el=document.getElementById('f-pilot');if(el)el.value=name;document.querySelectorAll('.pchip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
-function selSocio(name){S.form.passenger=name;const el=document.getElementById('f-pass');if(el)el.value=name==='__todos__'?'Todos os socios':name;document.querySelectorAll('.schip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
+function selSocio(name){S.form.passenger=name;const el=document.getElementById('f-pass');if(el)el.value=name==='__todos__'?'Condomínio':name;document.querySelectorAll('.schip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
 function selLogPilot(name){S.logForm.pilot=name;const el=document.getElementById('l-pilot');if(el)el.value=name;document.querySelectorAll('.lpchip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
-function selLogSocio(name){S.logForm.passenger=name;const el=document.getElementById('l-pass');if(el)el.value=name==='__todos__'?'Todos os socios':name;document.querySelectorAll('.lschip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
+function selLogSocio(name){S.logForm.passenger=name;const el=document.getElementById('l-pass');if(el)el.value=name==='__todos__'?'Condomínio':name;document.querySelectorAll('.lschip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
 
 /* ===== PILOT / SOCIO / CATEGORY CRUD ===== */
 function renderAcItems(){
@@ -1198,7 +1198,7 @@ function renderDetail(){
   h+=row('Piloto',x.pilot);
   if(x.rateio&&x.rateio.length){
     h+='<div class="dt-row"><span class="dt-l">Rateio</span><span class="dt-v">'+x.rateio.map(function(r){return esc(r.name)+' '+r.percent+'%';}).join(' &middot; ')+'</span></div>';
-  }else{h+=x.passenger==='__todos__'?'<div class="dt-row"><span class="dt-l">Socio / Passageiro</span><span class="dt-v">&#11088; Todos os socios</span></div>':row('Socio / Passageiro',x.passenger);}
+  }else{h+=x.passenger==='__todos__'?'<div class="dt-row"><span class="dt-l">Socio / Passageiro</span><span class="dt-v">&#11088; Condomínio</span></div>':row('Socio / Passageiro',x.passenger);}
   h+='</div>';
   if(x.notes)h+='<div class="sep"></div><span class="divlbl">Observacoes</span><p style="font-size:14px;line-height:1.5;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px">'+esc(x.notes)+'</p>';
   h+='<div class="sep"></div>';
@@ -1327,8 +1327,14 @@ function groupBySocioRateio(list){
   const map={};
   list.forEach(function(x){
     const amt=parseFloat(x.amount)||0;
-    if(x.rateio&&x.rateio.length){x.rateio.forEach(function(r){map[r.name]=(map[r.name]||0)+amt*(r.percent/100);});}
-    else if(x.passenger){map[x.passenger]=(map[x.passenger]||0)+amt;}
+    if(x.rateio&&x.rateio.length){
+      x.rateio.forEach(function(r){map[r.name]=(map[r.name]||0)+amt*(r.percent/100);});
+    } else if((x.passenger||'')==='__todos__'){
+      const n=Math.max(1,cfg.socios.length);
+      cfg.socios.forEach(function(s){map[s]=(map[s]||0)+amt/n;});
+    } else if(x.passenger){
+      map[x.passenger]=(map[x.passenger]||0)+amt;
+    }
   });
   return map;
 }
@@ -1660,7 +1666,7 @@ function rExpenseForm(){
       h+='</div></div>';
     }else{
       h+='<div class="field"><label>Socio / Passageiro</label><input id="f-pass" type="text" value="'+esc(S.form.passenger)+'" oninput="S.form.passenger=this.value" placeholder="Para quem voou">';
-      h+='<div class="chips"><div class="chip schip todos-chip'+(S.form.passenger==="__todos__"?" on":"")+' " data-v="__todos__" onclick="selSocio(this.dataset.v)">&#11088; Todos os socios</div>'+cfg.socios.map(function(s){return '<div class="chip schip'+(S.form.passenger===s?' on':'')+'" data-v="'+esc(s)+'" onclick="selSocio(this.dataset.v)">'+esc(s)+'</div>';}).join('')+'</div>';
+      h+='<div class="chips"><div class="chip schip todos-chip'+(S.form.passenger==="__todos__"?" on":"")+' " data-v="__todos__" onclick="selSocio(this.dataset.v)">&#11088; Condomínio</div>'+cfg.socios.map(function(s){return '<div class="chip schip'+(S.form.passenger===s?' on':'')+'" data-v="'+esc(s)+'" onclick="selSocio(this.dataset.v)">'+esc(s)+'</div>';}).join('')+'</div>';
       h+='</div>';
     }
   }else{
@@ -1708,7 +1714,7 @@ function rLogForm(){
   if(cfg.pilots.length)h+='<div class="chips">'+cfg.pilots.map(function(p){return '<div class="chip lpchip'+(S.logForm.pilot===p?' on':'')+'" data-v="'+esc(p)+'" onclick="selLogPilot(this.dataset.v)">'+esc(p)+'</div>';}).join('')+'</div>';
   h+='</div>';
   h+='<div class="field"><label>Para quem voou</label><input id="l-pass" type="text" value="'+esc(S.logForm.passenger)+'" oninput="S.logForm.passenger=this.value" placeholder="Socio ou passageiro">';
-  if(cfg.socios.length)h+='<div class="chips"><div class="chip lschip todos-chip'+(S.logForm.passenger==="__todos__"?" on":"")+' " data-v="__todos__" onclick="selLogSocio(this.dataset.v)">&#11088; Todos os socios</div>'+cfg.socios.map(function(s){return '<div class="chip lschip'+(S.logForm.passenger===s?' on':'')+'" data-v="'+esc(s)+'" onclick="selLogSocio(this.dataset.v)">'+esc(s)+'</div>';}).join('')+'</div>';
+  if(cfg.socios.length)h+='<div class="chips"><div class="chip lschip todos-chip'+(S.logForm.passenger==="__todos__"?" on":"")+' " data-v="__todos__" onclick="selLogSocio(this.dataset.v)">&#11088; Condomínio</div>'+cfg.socios.map(function(s){return '<div class="chip lschip'+(S.logForm.passenger===s?' on':'')+'" data-v="'+esc(s)+'" onclick="selLogSocio(this.dataset.v)">'+esc(s)+'</div>';}).join('')+'</div>';
   h+='</div>';
   h+='<div class="field"><label>Observacoes</label><textarea id="l-notes" class="notes-ta" placeholder="Anotacoes do voo (opcional)" oninput="S.logForm.notes=this.value">'+esc(S.logForm.notes)+'</textarea></div>';
   h+='<button class="submit-btn" '+((!S.logForm.aircraft||S.submitting)?'disabled':'')+' onclick="'+(isEditingLog?'saveEditLog':'submitLog')+'()">'+(S.submitting?'Salvando...':(isEditingLog?'&#10003; Salvar alteracoes':'&#10003; Salvar registro de voo'))+'</button>';
@@ -1770,7 +1776,7 @@ function rHist(){
       if(x.photo)meta+='<span class="mc mc-gray">&#128247;</span>';
       if(x.pilot)meta+='<span class="mc mc-gray">&#128100; '+esc(x.pilot)+'</span>';
       if(x.rateio&&x.rateio.length)meta+='<span class="mc mc-parc">&#9878; '+(x._socioPercent?x._socioPercent+'%':'Rateio')+'</span>';
-      else if(x.passenger==='__todos__')meta+='<span class="mc mc-socio">&#11088; Todos os socios</span>';
+      else if(x.passenger==='__todos__')meta+='<span class="mc mc-socio">&#11088; Condomínio</span>';
       else if(x.passenger)meta+='<span class="mc mc-socio">&#11088; '+esc(x.passenger)+'</span>';
       h+='<div class="expense-item'+statusCls+'" data-id="'+x.id+'" onclick="openDetail(this.dataset.id)">'
         +'<div class="exp-top"><div class="exp-desc">'+esc(x.description)+'</div><div style="text-align:right">'
@@ -1813,7 +1819,7 @@ function rLog(){
   if(cfg.ac.length>1){h+='<div class="filter-bar"><button class="filter-chip'+(S.logFilter==='all'?' on':'')+'" data-f="all" onclick="setLogFilter(this.dataset.f)">Todas aeronaves</button>';
   cfg.ac.forEach(function(a){h+='<button class="filter-chip'+(S.logFilter===a.id?' on':'')+'" data-f="'+a.id+'" onclick="setLogFilter(this.dataset.f)">'+esc(a.name)+'</button>';});
   h+='</div>';}
-  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.logSocioFilter==='all'?' on':'')+'" data-s="all" onclick="setLogSocioFilter(this.dataset.s)">Todos os voos</button><button class="filter-chip'+(S.logSocioFilter==='__todos__'?' on':'')+'" data-s="__todos__" onclick="setLogSocioFilter(this.dataset.s)">&#11088; Todos socios</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.logSocioFilter===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setLogSocioFilter(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
+  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.logSocioFilter==='all'?' on':'')+'" data-s="all" onclick="setLogSocioFilter(this.dataset.s)">Todos os voos</button><button class="filter-chip'+(S.logSocioFilter==='__todos__'?' on':'')+'" data-s="__todos__" onclick="setLogSocioFilter(this.dataset.s)">&#11088; Condomínio</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.logSocioFilter===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setLogSocioFilter(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
   // Chips de mes
   const logMonths=[...new Set(base.map(function(x){return (x.date||'').slice(0,7);}).filter(Boolean))].sort().reverse();
   if(logMonths.length>1){
@@ -1829,7 +1835,7 @@ function rLog(){
         +'<div class="exp-meta"><span class="mc mc-'+(x.aircraft==='ac1'?'ac1':'ac2')+'">'+esc(acLbl(x.aircraft))+'</span>'
         +(x.departureTime||x.arrivalTime?'<span class="mc mc-gray">'+(x.departureTime?esc(x.departureTime):'?')+(x.departureTime&&x.arrivalTime?' &rarr; ':x.arrivalTime?' &rarr; ':'')+(x.arrivalTime?esc(x.arrivalTime):'')+'</span>':'')
         +(x.pilot?'<span class="mc mc-gray">&#128100; '+esc(x.pilot)+'</span>':'')
-        +(x.passenger==='__todos__'?'<span class="mc mc-socio">&#11088; Todos os socios</span>':(x.passenger?'<span class="mc mc-socio">&#11088; '+esc(x.passenger)+'</span>':''))
+        +(x.passenger==='__todos__'?'<span class="mc mc-socio">&#11088; Condomínio</span>':(x.passenger?'<span class="mc mc-socio">&#11088; '+esc(x.passenger)+'</span>':''))
         +(x.photo?'<span class="mc mc-gray">&#128247;</span>':'')
         +'</div>'
         +(x.notes?'<div style="font-size:12px;color:var(--muted);margin-top:7px;line-height:1.4">'+esc(x.notes)+'</div>':'')
@@ -1862,10 +1868,32 @@ function rPanelExp(){
   let h='';
   // Filtros aeronave e socio
   if(cfg.ac.length>1){h+='<div class="filter-bar"><button class="filter-chip'+(S.panelAc==='all'?' on':'')+'" data-f="all" onclick="setPanelAc(this.dataset.f)">Todas aeronaves</button>';cfg.ac.forEach(function(a){h+='<button class="filter-chip'+(S.panelAc===a.id?' on':'')+'" data-f="'+a.id+'" onclick="setPanelAc(this.dataset.f)">'+esc(a.name)+'</button>';});h+='</div>';}
-  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.panelSocio==='all'?' on':'')+'" data-s="all" onclick="setPanelSocio(this.dataset.s)">Todos socios</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.panelSocio===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setPanelSocio(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
+  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.panelSocio==='all'?' on':'')+'" data-s="all" onclick="setPanelSocio(this.dataset.s)">Condomínio</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.panelSocio===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setPanelSocio(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
   let filtered=base;
   if(S.panelAc!=='all')filtered=filtered.filter(function(x){return x.aircraft===S.panelAc;});
-  if(!isSocio&&S.panelSocio!=='all')filtered=filtered.filter(function(x){return (x.passenger||'')===S.panelSocio;});
+  if(!isSocio&&S.panelSocio!=='all'){
+    const ps=S.panelSocio;
+    // Incluir despesas diretas, rateio e condominio
+    filtered=filtered.filter(function(x){
+      if((x.passenger||'')===ps)return true;
+      if((x.passenger||'')==='__todos__')return true;
+      if(x.rateio&&x.rateio.some(function(r){return r.name===ps;}))return true;
+      return false;
+    });
+    // Ajustar valores para a proporção do sócio
+    filtered=filtered.map(function(x){
+      if(x.rateio&&x.rateio.length){
+        const r=x.rateio.find(function(r){return r.name===ps;});
+        if(r){const p=parseFloat(x.amount)*r.percent/100;return Object.assign({},x,{amount:String(p),_socioPercent:r.percent,_fullAmount:x.amount});}
+      }
+      if((x.passenger||'')==='__todos__'){
+        const n=Math.max(1,cfg.socios.length);
+        const p=parseFloat(x.amount)/n;
+        return Object.assign({},x,{amount:String(p),_socioPercent:Math.round(100/n),_fullAmount:x.amount});
+      }
+      return x;
+    });
+  }
   // Navegacao por mes
   const months=getExpMonths(filtered);
   h+='<div class="filter-bar"><button class="filter-chip'+(S.panelExpMonth==='all'?' on':'')+'" data-m="all" onclick="setPanelExpMonth(this.dataset.m)">Visao geral</button>';
