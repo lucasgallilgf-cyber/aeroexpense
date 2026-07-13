@@ -1067,6 +1067,86 @@ function exportExpenseCSV(){
     list.map(function(x){return[fmtD(x.dueDate||x.date),x.description||'',x.supplier||'',x.invoiceNo||'',x.category||'',(parseFloat(x.amount)||0).toFixed(2).replace('.',','),acLbl(x.aircraft),x.pilot||'',x.passenger||'',x.notes||''];}));
   dlCSV(buildCSVStr(rows),'despesas-'+label+'.csv');
 }
+
+async function exportLogPDF(){
+  toast('Gerando PDF do diario...');
+  try{
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js');
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF('l','mm','a4'); // landscape para caber mais colunas
+    // Montar lista filtrada igual ao rLog
+    const isSocioView=S.identity?.role==='socio'||!!S.simulatingSocio;
+    const isSocio=S.identity?.role==='socio';
+    let list=forRole(logbook);
+    if(S.logFilter!=='all')list=list.filter(function(x){return x.aircraft===S.logFilter;});
+    if(S.logMonth!=='all')list=list.filter(function(x){return (x.date||'').startsWith(S.logMonth);});
+    if(!isSocio&&S.logSocioFilter!=='all'){
+      if(S.logSocioFilter==='__todos__')list=list.filter(function(x){return (x.passenger||'')==='__todos__';});
+      else list=list.filter(function(x){return (x.passenger||'')===S.logSocioFilter;});
+    }
+    list=list.slice().sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});
+    // Info de periodo
+    let periodo='Todos os periodos';
+    if(S.logMonth!=='all'){const p=S.logMonth.split('-');periodo=MONTH_AB[parseInt(p[1],10)-1]+' de '+p[0];}
+    const userName=S.simulatingSocio||(S.identity?.name||'');
+    // Cabecalho
+    doc.setFillColor(13,31,60);
+    doc.rect(0,0,297,28,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(16);doc.setFont('helvetica','bold');
+    doc.text('AeroExpense - Diario de Bordo',14,12);
+    doc.setFontSize(9);doc.setFont('helvetica','normal');
+    const subInfo=(userName?'Socio: '+userName+' | ':'')+' Periodo: '+periodo+' | Gerado em: '+fmtD(td());
+    doc.text(subInfo,14,22);
+    // Calcular total de horas
+    let totalMins=0;
+    list.forEach(function(x){const m=flightMins(x);if(m)totalMins+=m;});
+    const tH=Math.floor(totalMins/60),tM=totalMins%60;
+    const totalStr=tH+'h'+(tM>0?tM+'min':'');
+    // Tabela
+    const rows=list.map(function(x){
+      const mins=flightMins(x);
+      const dur=mins?(Math.floor(mins/60)+'h'+(mins%60>0?mins%60+'min':'')):'--';
+      const pass=(x.passenger||'')==='__todos__'?'Condominio':(x.passenger||'');
+      return [fmtD(x.date),x.departureFrom||'',x.departureTime||'--',x.arrivalTo||'',x.arrivalTime||'--',dur,acLbl(x.aircraft),x.pilot||'',pass,x.notes||''];
+    });
+    // Linha total horas
+    rows.push(['','','','','TOTAL HORAS',totalStr,'','','','']);
+    doc.autoTable({
+      startY:32,
+      head:[['Data','Saida','Hr Saida','Chegada','Hr Chegada','Duracao','Aeronave','Piloto','Para quem','Obs']],
+      body:rows,
+      headStyles:{fillColor:[13,31,60],textColor:255,fontStyle:'bold',fontSize:7},
+      bodyStyles:{fontSize:7},
+      alternateRowStyles:{fillColor:[245,248,255]},
+      columnStyles:{
+        0:{cellWidth:20},1:{cellWidth:45},2:{cellWidth:16,halign:'center'},
+        3:{cellWidth:45},4:{cellWidth:16,halign:'center'},5:{cellWidth:16,halign:'center'},
+        6:{cellWidth:28},7:{cellWidth:30},8:{cellWidth:30},9:{cellWidth:37}
+      },
+      didParseCell:function(d){
+        if(d.row.index===rows.length-1){
+          d.cell.styles.fontStyle='bold';
+          d.cell.styles.fillColor=[225,235,255];
+        }
+      }
+    });
+    // Rodape
+    const pg=doc.internal.getNumberOfPages();
+    for(let i=1;i<=pg;i++){
+      doc.setPage(i);
+      doc.setFontSize(7);doc.setTextColor(150,150,150);
+      doc.text('AeroExpense - Gerado em '+fmtD(td()),14,doc.internal.pageSize.height-6);
+      doc.text('Pagina '+i+' de '+pg,283,doc.internal.pageSize.height-6,{align:'right'});
+    }
+    const label=S.logMonth!=='all'?S.logMonth:'completo';
+    const uLabel=userName?userName.replace(/\s+/g,'-')+'-':'';
+    doc.save('Diario-'+uLabel+label+'.pdf');
+    toast('PDF do diario exportado!');
+  }catch(err){console.error(err);toast('Erro ao gerar PDF');}
+}
+
 function exportLogCSV(){
   const list=forRole(logbook);
   const rows=[['Data','Local Saida','Hora Saida','Destino','Hora Chegada','Aeronave','Piloto','Para Quem','Observacoes']].concat(
@@ -1100,6 +1180,77 @@ async function exportExpensePackage(){
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);toast('Pacote exportado!');
   }catch(err){console.error(err);toast('Erro ao gerar pacote');}
 }
+
+async function exportSocioStatementPDF(name, monthKey){
+  toast('Gerando PDF...');
+  try{
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js');
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF();
+    const allExp=forRole(expenses);
+    const list=monthKey&&monthKey!=='all'
+      ?allExp.filter(function(x){return (x.dueDate||x.date||'').startsWith(monthKey);})
+      :allExp;
+    list.sort(function(a,b){return (a.dueDate||a.date||'').localeCompare(b.dueDate||b.date||'');});
+    let periodo='Todos os periodos';
+    if(monthKey&&monthKey!=='all'){const p=monthKey.split('-');periodo=MONTH_AB[parseInt(p[1],10)-1]+' de '+p[0];}
+    // Cabecalho escuro
+    doc.setFillColor(13,31,60);
+    doc.rect(0,0,210,32,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(16);doc.setFont('helvetica','bold');
+    doc.text('AeroExpense',14,14);
+    doc.setFontSize(10);doc.setFont('helvetica','normal');
+    doc.text('Extrato de Despesas - '+name,14,24);
+    // Infos
+    doc.setTextColor(60,60,60);
+    doc.setFontSize(9);
+    doc.text('Periodo: '+periodo,14,42);
+    doc.text('Gerado em: '+fmtD(td()),14,49);
+    // Tabela
+    const rows=list.map(function(x){
+      const inst=x.installments>1?x.installmentNo+'/'+x.installments:'A vista';
+      const val=fmtR(x.amount);
+      const pct=x._socioPercent?parseFloat(x._socioPercent).toFixed(1)+'%':'';
+      let socio=pct?(pct+' de '+fmtR(x._fullAmount||x.amount)):'';
+      return [fmtD(x.dueDate||x.date),x.description||'',x.category||'',val,inst,acLbl(x.aircraft),socio];
+    });
+    const total=sumR(list);
+    rows.push(['','','TOTAL',fmtR(total),'','','']);
+    doc.autoTable({
+      startY:55,
+      head:[['Data','Descricao','Categoria','Valor (R$)','Parcela','Aeronave','Proporcao']],
+      body:rows,
+      headStyles:{fillColor:[13,31,60],textColor:255,fontStyle:'bold',fontSize:8},
+      bodyStyles:{fontSize:8},
+      alternateRowStyles:{fillColor:[245,248,255]},
+      columnStyles:{
+        0:{cellWidth:20},1:{cellWidth:52},2:{cellWidth:28},
+        3:{cellWidth:25,halign:'right'},4:{cellWidth:15,halign:'center'},
+        5:{cellWidth:22},6:{cellWidth:28,textColor:[100,100,100]}
+      },
+      didParseCell:function(d){
+        if(d.row.index===rows.length-1){
+          d.cell.styles.fontStyle='bold';
+          d.cell.styles.fillColor=[225,235,255];
+        }
+      }
+    });
+    // Rodape
+    const pg=doc.internal.getNumberOfPages();
+    for(let i=1;i<=pg;i++){
+      doc.setPage(i);
+      doc.setFontSize(8);doc.setTextColor(150,150,150);
+      doc.text('AeroExpense - Gerado em '+fmtD(td()),14,doc.internal.pageSize.height-8);
+      doc.text('Pagina '+i+' de '+pg,196,doc.internal.pageSize.height-8,{align:'right'});
+    }
+    const fname='Extrato-'+name.replace(/\s+/g,'-')+'-'+(monthKey||'completo')+'.pdf';
+    doc.save(fname);
+    toast('PDF exportado!');
+  }catch(err){console.error(err);toast('Erro ao gerar PDF');}
+}
+
 async function exportSocioStatement(name, monthKey){
   toast('Gerando extrato...');
   try{
@@ -1790,7 +1941,13 @@ function rHist(){
     });
   }
   if(base.length){
-    if(isSocio||(S.simulatingSocio)){const eName=S.simulatingSocio||(S.identity?.name||'');h+='<button class="export-btn" style="background:#0D1F3C;color:#fff;border:none;margin-bottom:8px" data-name="'+esc(eName)+'" data-m="all" onclick="exportSocioStatement(this.dataset.name,this.dataset.m)">&#128228; Exportar meu extrato completo (Excel)</button>';}
+    if(isSocio||(S.simulatingSocio)){
+      const eName=S.simulatingSocio||(S.identity?.name||'');
+      h+='<div style="display:flex;gap:8px;margin-bottom:8px">'
+        +'<button class="export-btn" style="flex:1;background:#0D1F3C;color:#fff;border:none" data-name="'+esc(eName)+'" data-m="all" onclick="exportSocioStatement(this.dataset.name,this.dataset.m)">&#128202; Excel completo</button>'
+        +'<button class="export-btn" style="flex:1;background:#C0392B;color:#fff;border:none" data-name="'+esc(eName)+'" data-m="all" onclick="exportSocioStatementPDF(this.dataset.name,this.dataset.m)">&#128196; PDF completo</button>'
+        +'</div>';
+    }
     h+='<button class="export-btn" onclick="exportExpenseCSV()">&#128228; CSV rapido</button>';
     h+='<button class="export-btn" style="background:var(--navy);color:#fff;border:none;margin-top:8px" onclick="exportExpensePackage()">&#128230; Pacote Excel + comprovantes</button>';
   }
@@ -1846,8 +2003,14 @@ function rLog(){
     });
   }
   if(base.length){
-    h+='<button class="export-btn" onclick="exportLogCSV()">&#128228; CSV diario</button>';
-    h+='<button class="export-btn" style="background:var(--navy);color:#fff;border:none;margin-top:8px" onclick="exportLogPackage()">&#128230; Pacote Excel + documentos</button>';
+    // PDF sempre disponivel (socio e admin)
+    h+='<button class="export-btn" style="background:#C0392B;color:#fff;border:none;margin-bottom:8px" onclick="exportLogPDF()">&#128196; Exportar Diario em PDF</button>';
+    if(canAdd){
+      h+='<div style="display:flex;gap:8px">'
+        +'<button class="export-btn" style="flex:1" onclick="exportLogCSV()">&#128228; CSV</button>'
+        +'<button class="export-btn" style="flex:1;background:var(--navy);color:#fff;border:none" onclick="exportLogPackage()">&#128230; Pacote ZIP</button>'
+        +'</div>';
+    }
   }
   return h;
 }
@@ -1945,7 +2108,13 @@ function rPanelExp(){
     h+='</div>';
     // Botao exportar extrato (para socios e simulacao)
     const exportName=S.simulatingSocio||(isSocio?S.identity?.name:'');
-    if(exportName)h+='<button class="export-btn" style="margin-bottom:10px;background:#0D1F3C;color:#fff;border:none" data-name="'+esc(exportName)+'" data-m="'+S.panelExpMonth+'" onclick="exportSocioStatement(this.dataset.name,this.dataset.m)">&#128228; Exportar extrato de '+esc(MONTH_AB[mNum-1]+' '+mYear)+'</button>';
+    if(exportName){
+      const elbl=esc(MONTH_AB[mNum-1]+' '+mYear);
+      h+='<div style="display:flex;gap:8px;margin-bottom:10px">'
+        +'<button class="export-btn" style="flex:1;background:#0D1F3C;color:#fff;border:none" data-name="'+esc(exportName)+'" data-m="'+S.panelExpMonth+'" onclick="exportSocioStatement(this.dataset.name,this.dataset.m)">&#128202; Excel</button>'
+        +'<button class="export-btn" style="flex:1;background:#C0392B;color:#fff;border:none" data-name="'+esc(exportName)+'" data-m="'+S.panelExpMonth+'" onclick="exportSocioStatementPDF(this.dataset.name,this.dataset.m)">&#128196; PDF</button>'
+        +'</div>';
+    }
     if(!mList.length){
       h+='<div class="empty"><div class="ei">&#128193;</div><h3>Sem titulos em '+MONTH_AB[mNum-1]+'</h3></div>';
     }else{
