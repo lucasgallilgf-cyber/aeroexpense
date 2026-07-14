@@ -954,6 +954,7 @@ function selCat(c){
   document.querySelectorAll('.cchip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.cat===S.form.category);});
 }
 function selPilot(name){S.form.pilot=name;const el=document.getElementById('f-pilot');if(el)el.value=name;document.querySelectorAll('.pchip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
+function selPilotAmbos(){const v=cfg.pilots.join(' / ');selPilot(v);}
 function selSocio(name){S.form.passenger=name;const el=document.getElementById('f-pass');if(el)el.value=name==='__todos__'?'Condomínio':name;document.querySelectorAll('.schip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
 function selLogPilot(name){S.logForm.pilot=name;const el=document.getElementById('l-pilot');if(el)el.value=name;document.querySelectorAll('.lpchip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
 function selLogSocio(name){S.logForm.passenger=name;const el=document.getElementById('l-pass');if(el)el.value=name==='__todos__'?'Condomínio':name;document.querySelectorAll('.lschip').forEach(function(ch){ch.classList.toggle('on',ch.dataset.v===name);});}
@@ -1794,7 +1795,7 @@ function rExpenseForm(){
   h+=cfg.ac.map(function(a){return '<div class="ac-card'+(S.form.aircraft===a.id?' on':'')+'" data-id="'+a.id+'" onclick="selAc(this.dataset.id)"><div class="ac-ico">&#9992;&#65039;</div><div class="ac-name">'+esc(a.name)+'</div>'+(a.reg?'<div class="ac-reg">'+esc(a.reg)+'</div>':'')+'</div>';}).join('');
   h+='</div>';
   h+='<div class="field"><label>Piloto</label><input id="f-pilot" type="text" value="'+esc(S.form.pilot)+'" oninput="S.form.pilot=this.value" placeholder="Nome do piloto">';
-  if(cfg.pilots.length)h+='<div class="chips">'+cfg.pilots.map(function(p){return '<div class="chip pchip'+(S.form.pilot===p?' on':'')+'" data-v="'+esc(p)+'" onclick="selPilot(this.dataset.v)">'+esc(p)+'</div>';}).join('')+'</div>';
+  if(cfg.pilots.length){const ambosPilots=cfg.pilots.join(' / ');h+='<div class="chips">'+cfg.pilots.map(function(p){return '<div class="chip pchip'+(S.form.pilot===p?' on':'')+'" data-v="'+esc(p)+'" onclick="selPilot(this.dataset.v)">'+esc(p)+'</div>';}).join('')+(cfg.pilots.length>=2?'<div class="chip pchip'+(S.form.pilot===ambosPilots?' on':'')+'" data-v="'+esc(ambosPilots)+'" onclick="selPilotAmbos()">Ambos</div>':'')+'</div>';}
   else h+='<span class="hint-link">Cadastre pilotos em Config.</span>';
   h+='</div>';
   if(cfg.socios.length){
