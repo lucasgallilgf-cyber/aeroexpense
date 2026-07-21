@@ -800,6 +800,50 @@ function saveAdminPin(){
 }
 
 /* ===== SIMULATE SOCIO VIEW ===== */
+async function migrateMonth(fromM,toM,note){
+  fromM=(fromM||'').trim();toM=(toM||'').trim();note=(note||'').trim();
+  if(!fromM||!toM){toast('Preencha os dois meses');return;}
+  if(!/^\d{4}-\d{2}$/.test(fromM)||!/^\d{4}-\d{2}$/.test(toM)){toast('Formato: AAAA-MM (ex: 2026-05)');return;}
+  if(!confirm('Mover despesas de '+fromM+' para '+toM+'?\n\nEsta acao nao pode ser desfeita.'))return;
+  toast('Buscando despesas...');
+  try{
+    const snap=await fdb.collection('expenses').get();
+    const batch=fdb.batch();
+    let count=0;
+    snap.forEach(function(doc){
+      const x=doc.data();
+      const dd=x.dueDate||'';const dt=x.date||'';
+      if(dd.startsWith(fromM)||dt.startsWith(fromM)){
+        const upd={};
+        if(dd.startsWith(fromM))upd.dueDate=toM+dd.slice(7);
+        if(dt.startsWith(fromM))upd.date=toM+dt.slice(7);
+        if(note)upd.notes=x.notes?(x.notes+'\n'+note):note;
+        batch.update(fdb.collection('expenses').doc(doc.id),upd);
+        count++;
+      }
+    });
+    if(!count){toast('Nenhuma despesa encontrada em '+fromM);return;}
+    await batch.commit();
+    // Atualizar array local
+    expenses=expenses.map(function(x){
+      const dd=x.dueDate||'';const dt=x.date||'';
+      if(dd.startsWith(fromM)||dt.startsWith(fromM)){
+        const u=Object.assign({},x);
+        if(dd.startsWith(fromM))u.dueDate=toM+dd.slice(7);
+        if(dt.startsWith(fromM))u.date=toM+dt.slice(7);
+        if(note)u.notes=x.notes?(x.notes+'\n'+note):note;
+        return u;
+      }
+      return x;
+    });
+    toast('\u2705 '+count+' despesas migradas para '+toM+'!');
+    render();
+  }catch(err){
+    console.error(err);
+    toast('Erro: '+err.message);
+  }
+}
+
 function startSimulate(name){
   S.simulatingSocio=name;S.tab='history';render();
   toast('Simulando visao de '+name);
@@ -2361,6 +2405,18 @@ function rSets(){
     h+='</div></div>';
   }
   h+='<button class="save-btn" onclick="saveSets()">&#128190; Salvar configuracoes</button>';
+    if(isAdmin){
+    h+='<div class="scard" style="margin-top:14px;border:1.5px solid #F5A623;border-radius:12px;padding:16px">'
+      +'<div style="font-size:12px;font-weight:700;color:#8A6200;margin-bottom:6px">&#128260; Migração em lote</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Move despesas de um mês para outro e adiciona uma observação.</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+        +'<div><div style="font-size:11px;color:var(--muted);margin-bottom:3px">De (AAAA-MM)</div><input id="mig-from" value="'+esc(S.migrateFrom)+'" placeholder="2026-05" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>'
+        +'<div><div style="font-size:11px;color:var(--muted);margin-bottom:3px">Para (AAAA-MM)</div><input id="mig-to" value="'+esc(S.migrateTo)+'" placeholder="2026-06" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>'
+      +'</div>'
+      +'<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);margin-bottom:3px">Observação a adicionar</div><input id="mig-note" value="'+esc(S.migrateNote)+'" placeholder="Despesa de Maio" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>'
+      +'<button class="submit-btn" style="background:#C0392B;width:100%" onclick="migrateMonth(document.getElementById(&quot;mig-from&quot;).value,document.getElementById(&quot;mig-to&quot;).value,document.getElementById(&quot;mig-note&quot;).value)">&#128260; Executar migração</button>'
+      +'</div>';
+  }
   h+='<p style="font-size:11px;color:var(--muted);text-align:center;margin-top:16px;line-height:1.9">AeroExpense v3<br><strong>iPhone:</strong> Safari &rarr; Compartilhar &rarr; Tela de Inicio<br><strong>Android:</strong> Chrome &rarr; &#8942; &rarr; Adicionar a tela inicial</p>';
   return h;
 }
