@@ -1663,7 +1663,8 @@ function render(){
   if(!cfg.apiKey){root.innerHTML=rSetup();return;}
   if(!S.identity){root.innerHTML=rIdentity();return;}
   const roleLabel={'admin':'Admin','pilot':'Piloto','socio':'Socio'}[S.identity.role]||S.identity.role;
-  let h='<div class="app"><div class="topbar"><div class="topbar-title">&#9992;&#65039; AeroExpense</div><div class="topbar-right">'+esc(S.identity.name)+'<br><small>'+roleLabel+'</small></div></div>';
+  const isSocioView2=S.identity?.role==='socio'||!!S.simulatingSocio;
+  let h='<div class="app"><div class="topbar" style="display:flex;justify-content:space-between;align-items:center"><div class="topbar-title">&#9992;&#65039; AeroExpense</div><div style="display:flex;align-items:center;gap:10px">'+(isSocioView2?'<button onclick="resetMyIdentity()" style="font-size:11px;font-weight:600;padding:5px 11px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;cursor:pointer;font-family:inherit">Sair</button>':'')+'<div class="topbar-right">'+esc(S.identity.name)+'<br><small>'+roleLabel+'</small></div></div></div>';
   h+='<div class="content">';
   if(S.simulatingSocio)h+='<div style="background:#FFF3CD;border:1.5px solid #F5A623;border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="font-size:12px;color:#8A6200;flex:1">&#128065; Simulando: <strong>'+esc(S.simulatingSocio)+'</strong></span><button onclick="stopSimulate()" style="font-size:12px;font-weight:600;color:#fff;background:#8A6200;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;white-space:nowrap;font-family:inherit">Sair</button></div>';
   if(S.tab==='new')h+=rNew();
@@ -2007,21 +2008,45 @@ function rLog(){
   let filt=base;
   if(S.logFilter!=='all')filt=filt.filter(function(x){return x.aircraft===S.logFilter;});
   if(S.logMonth!=='all')filt=filt.filter(function(x){return (x.date||'').startsWith(S.logMonth);});
-  if(!isSocio&&S.logSocioFilter!=='all'){if(S.logSocioFilter==='__todos__')filt=filt.filter(function(x){return (x.passenger||'')==='__todos__';});else filt=filt.filter(function(x){return (x.passenger||'')===S.logSocioFilter;});}
+  if(S.logSocioFilter!=='all'){
+    if(S.logSocioFilter==='__todos__')filt=filt.filter(function(x){return (x.passenger||'')==='__todos__';});
+    else if(!isSocio)filt=filt.filter(function(x){return (x.passenger||'')===S.logSocioFilter;});
+  }
   const canDel=canAdd;
   let h=isSocio?'<div style="background:#EEF4FC;border:1.5px solid #C8D8F0;border-radius:10px;padding:10px 14px;font-size:12px;color:#1A4DAA;margin-bottom:12px;display:flex;align-items:center;gap:8px">&#128274; Voce esta vendo apenas os registros onde aparece como passageiro</div>':'';
   if(canAdd)h+='<button class="submit-btn" style="margin-bottom:14px" onclick="setTab('+"'new'"+');setNewType('+"'log'"+')">&plus; Novo registro de voo</button>';
   const totalLogMins=sumMins(filt);
   const totalLogH=Math.floor(totalLogMins/60),totalLogM=totalLogMins%60;
   const totalLogStr=totalLogMins>0?(totalLogH>0?totalLogH+'h ':'')+(totalLogM>0?totalLogM+'min':''):'--';
-  h+='<div class="stats-row"><div class="stat-card"><div class="sl">Total</div><div class="sv">'+filt.length+'</div><div class="ss">voos registrados</div></div>'
+  // Para socios em "Todos os voos": separar horas exclusivas vs condominio
+  const isSocioView3=S.identity?.role==='socio'||!!S.simulatingSocio;
+  let statsHtml='<div class="stats-row"><div class="stat-card"><div class="sl">Total</div><div class="sv">'+filt.length+'</div><div class="ss">voos registrados</div></div>'
     +'<div class="stat-card"><div class="sl">Horas de voo</div><div class="sv">'+totalLogStr+'</div><div class="ss">tempo total</div></div>';
+  if(isSocioView3&&S.logSocioFilter==='all'){
+    const condFilt=filt.filter(function(x){return (x.passenger||'')==='__todos__';});
+    const exclFilt=filt.filter(function(x){return (x.passenger||'')!=='__todos__';});
+    const condMins=sumMins(condFilt);const exclMins=sumMins(exclFilt);
+    const condStr=condMins>0?(Math.floor(condMins/60)+'h '+(condMins%60>0?condMins%60+'min':'')):'--';
+    const exclStr=exclMins>0?(Math.floor(exclMins/60)+'h '+(exclMins%60>0?exclMins%60+'min':'')):'--';
+    statsHtml='<div class="stats-row">'
+      +'<div class="stat-card"><div class="sl">Total</div><div class="sv">'+filt.length+'</div><div class="ss">voos registrados</div></div>'
+      +'<div class="stat-card"><div class="sl">Horas de voo</div><div class="sv">'+totalLogStr+'</div><div class="ss">tempo total</div></div>'
+      +'</div>'
+      +'<div class="stats-row">'
+      +'<div class="stat-card" style="border-color:#C8D8F0"><div class="sl" style="color:#378ADD">Exclusivo</div><div class="sv" style="color:#185FA5">'+exclStr+'</div><div class="ss">'+exclFilt.length+' voos só seu</div></div>'
+      +'<div class="stat-card" style="border-color:#F5E6C8"><div class="sl" style="color:#A0700A">Condomínio</div><div class="sv" style="color:#7A5208">'+condStr+'</div><div class="ss">'+condFilt.length+' voos compartilhados</div></div>';
+  }
+  h+=statsHtml+'</div>';
   if(cfg.ac.length>1)cfg.ac.forEach(function(a){const ax=base.filter(function(x){return x.aircraft===a.id;});h+='<div class="stat-card"><div class="sl">'+esc(a.name)+'</div><div class="sv">'+ax.length+'</div><div class="ss">voos</div></div>';});
   h+='</div>';
   if(cfg.ac.length>1){h+='<div class="filter-bar"><button class="filter-chip'+(S.logFilter==='all'?' on':'')+'" data-f="all" onclick="setLogFilter(this.dataset.f)">Todas aeronaves</button>';
   cfg.ac.forEach(function(a){h+='<button class="filter-chip'+(S.logFilter===a.id?' on':'')+'" data-f="'+a.id+'" onclick="setLogFilter(this.dataset.f)">'+esc(a.name)+'</button>';});
   h+='</div>';}
-  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.logSocioFilter==='all'?' on':'')+'" data-s="all" onclick="setLogSocioFilter(this.dataset.s)">Todos os voos</button><button class="filter-chip'+(S.logSocioFilter==='__todos__'?' on':'')+'" data-s="__todos__" onclick="setLogSocioFilter(this.dataset.s)">&#11088; Condomínio</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.logSocioFilter===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setLogSocioFilter(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
+  if(cfg.socios.length){
+    h+='<div class="filter-bar"><button class="filter-chip'+(S.logSocioFilter==='all'?' on':'')+'" data-s="all" onclick="setLogSocioFilter(this.dataset.s)">Todos os voos</button><button class="filter-chip'+(S.logSocioFilter==='__todos__'?' on':'')+'" data-s="__todos__" onclick="setLogSocioFilter(this.dataset.s)">&#11088; Condomínio</button>';
+    if(!isSocio)cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.logSocioFilter===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setLogSocioFilter(this.dataset.s)">'+esc(s)+'</button>';});
+    h+='</div>';
+  }
   // Chips de mes
   const logMonths=[...new Set(base.map(function(x){return (x.date||'').slice(0,7);}).filter(Boolean))].sort().reverse();
   if(logMonths.length>1){
