@@ -2305,7 +2305,7 @@ function rPanelExp(){
   if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.panelSocio==='all'?' on':'')+'" data-s="all" onclick="setPanelSocio(this.dataset.s)">Condomínio</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.panelSocio===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setPanelSocio(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
   let filtered=base;
   if(S.panelAc!=='all')filtered=filtered.filter(function(x){return x.aircraft===S.panelAc;});
-  if(!isSocio&&S.panelSocio!=='all'){
+  if(!isSocio&&!S.simulatingSocio&&S.panelSocio!=='all'){
     const ps=S.panelSocio;
     // Incluir despesas diretas, rateio e condominio
     filtered=filtered.filter(function(x){
