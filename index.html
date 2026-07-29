@@ -316,7 +316,7 @@ const S={
   filter:'all', catFilter:'all', logFilter:'all', logSocioFilter:'all', logMonth:'all',
   panelAc:'all', panelSocio:'all', panelView:'expenses', panelLogMonth:'all', panelExpMonth:'all',
   identity:null, identityLoading:true, adminPinMode:false, pinMode:false, pinTarget:null,
-  editingExpId:null, editingLogId:null, simulatingSocio:null, unattModal:false,
+  editingExpId:null, editingLogId:null, simulatingSocio:null, unattModal:false, recMonth:'',
   form:{description:'',supplier:'',invoiceNo:'',amount:'',date:'',installments:'1',rateioMode:false,rateio:{},category:'',aircraft:'',pilot:'',passenger:'',notes:''},histMonth:'all',
   logForm:{date:'',departureFrom:'',departureTime:'',arrivalTo:'',arrivalTime:'',aircraft:'',pilot:'',passenger:'',notes:''}
 };
@@ -354,13 +354,17 @@ function listenReceipts(){
     render();
   });
 }
+function doRelease(s,v){releaseReceipt(s,S.recMonth,v==='1');}
 function releaseReceipt(socio,monthKey,val){
-  const rel=Object.assign({},cfg.receiptsReleased);
+  if(!monthKey||!/^\d{4}-\d{2}$/.test(monthKey)){toast('Informe o mês antes (AAAA-MM)');return;}
+  const rel=JSON.parse(JSON.stringify(cfg.receiptsReleased||{}));
   if(!rel[monthKey])rel[monthKey]={};
   rel[monthKey][socio]=val;
-  fdb.collection('shared_config').doc('receipts').set({released:rel},{merge:false}).then(function(){
-    toast(val?'Recibo liberado para '+socio:'Recibo ocultado');
-  });
+  fdb.collection('shared_config').doc('receipts').set({released:rel}).then(function(){
+    cfg.receiptsReleased=rel;
+    toast(val?'\u2705 Recibo liberado para '+socio:'Recibo ocultado para '+socio);
+    render();
+  }).catch(function(e){toast('Erro: '+e.message);});
 }
 
 function listenExpenses(){
@@ -2619,7 +2623,7 @@ function rSets(){
       +'<div style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:6px">&#128203; Recibos Mensais</div>'
       +'<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Gere recibos de reembolso e libere para os sócios visualizarem.</div>'
       +'<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);margin-bottom:3px">Mês de referência (AAAA-MM)</div>'
-      +'<input id="rec-month" placeholder="2026-06" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>';
+      +'<input id="rec-month" value="'+esc(S.recMonth)+'" placeholder="2026-06" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit" oninput="S.recMonth=this.value"></div>';
     cfg.socios.forEach(function(s){
       const rel=(cfg.receiptsReleased||{});
       const mesKey=(document.getElementById&&document.getElementById('rec-month')?.value)||'';
@@ -2629,8 +2633,8 @@ function rSets(){
         +(cfg.sociosCNPJ?.[s]?'<div style="font-size:11px;color:var(--muted)">'+esc(cfg.sociosCNPJ[s])+'</div>':'')
         +'</div>'
         +'<div style="display:flex;gap:6px">'
-        +'<button class="filter-chip" style="background:#0D1F3C;color:#fff;border-color:#0D1F3C;font-size:11px;padding:5px 10px" data-s="'+esc(s)+'" onclick="gerarReciboPDF(this.dataset.s,(document.getElementById(&quot;rec-month&quot;)||{}).value||null)">&#128196; PDF</button>'
-        +'<button class="filter-chip" style="'+(isReleased?'background:#2E7D32;color:#fff;border-color:#2E7D32':'background:#fff;color:#333;border-color:#ccc')+';font-size:11px;padding:5px 10px" data-s="'+esc(s)+'" data-rel="'+(isReleased?'false':'true')+'" onclick="releaseReceipt(this.dataset.s,(document.getElementById(&quot;rec-month&quot;)||{}).value,this.dataset.rel===&quot;true&quot;)">'+(isReleased?'&#128274; Ocultar':'&#128275; Liberar')+'</button>'
+        +'<button class="filter-chip" style="background:#0D1F3C;color:#fff;border-color:#0D1F3C;font-size:11px;padding:5px 10px" data-s="'+esc(s)+'" onclick="gerarReciboPDF(this.dataset.s,S.recMonth||null)">&#128196; PDF</button>'
+        +'<button class="filter-chip" style="'+(isReleased?'background:#2E7D32;color:#fff;border-color:#2E7D32':'background:#fff;color:#333;border-color:#ccc')+';font-size:11px;padding:5px 10px" data-s="'+esc(s)+'" data-rel="'+(isReleased?'false':'true')+'" onclick="doRelease(this.dataset.s,this.dataset.rel)">'+(isReleased?'&#128274; Ocultar':'&#128275; Liberar')+'</button>'
         +'</div></div>';
     });
     h+='</div>';
@@ -2656,4 +2660,4 @@ loadAll().then(render);
 
 </script>
 </body>
-</html>
+</html>+\'<button class="filter-chip" style="\'+(isReleased?\'background:#2E7D32;color:#fff;border-color:#2E7D32\':\'background:#fff;color:#333;border-color:#ccc\')+\';font-size:11px;padding:5px 10px" data-s="\'+esc(s)+\'" data-v="\'+(isReleased?\'0\':\'1\')+\'" onclick="doRelease(this.dataset.s,this.dataset.v)">\'+(isReleased?\'&#128274; Ocultar\':\'&#128275; Liberar\')+\'</button>\'
