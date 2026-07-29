@@ -354,7 +354,18 @@ function listenReceipts(){
     render();
   });
 }
-function doRelease(s,v){releaseReceipt(s,S.recMonth,v==='1');}
+function doGenReciboMes(s,m){gerarReciboPDF(s,m);}
+function doGenRecibo(s){
+  const m=(document.getElementById('rec-month')||{}).value||S.recMonth||'';
+  S.recMonth=m;
+  gerarReciboPDF(s,m||null);
+}
+function doRelease(s,v){
+  const m=(document.getElementById('rec-month')||{}).value||S.recMonth||'';
+  S.recMonth=m;
+  if(!m){toast('Digite o mês antes (ex: 2026-06)');document.getElementById('rec-month')?.focus();return;}
+  releaseReceipt(s,m,v==='1'||v==='true');
+}
 function releaseReceipt(socio,monthKey,val){
   if(!monthKey||!/^\d{4}-\d{2}$/.test(monthKey)){toast('Informe o mês antes (AAAA-MM)');return;}
   const rel=JSON.parse(JSON.stringify(cfg.receiptsReleased||{}));
@@ -401,6 +412,8 @@ function listenSharedConfig(){
       if(d.pins)cfg.pins=d.pins;
       if(d.customAirports)cfg.customAirports=d.customAirports;
       if(d.sociosCNPJ)cfg.sociosCNPJ=d.sociosCNPJ;
+      // Carregar releases de recibos junto com o config
+      fdb.collection('shared_config').doc('receipts').get().then(function(r){if(r.exists&&r.data().released)cfg.receiptsReleased=r.data().released;render();});
       saveCfg(); // persiste localmente para próxima abertura
       if(S.tab==='settings'){refreshPilotList();refreshSocioList();refreshCatList();}
       else{render();}
@@ -2327,6 +2340,24 @@ function rPanelExp(){
     h+='<div class="kcard kblue"><div class="kl">Total geral</div><div class="kv">'+fmtR(sumR(filtered))+'</div><div class="ks">'+filtered.length+' titulo'+(filtered.length!==1?'s':'')+'</div></div>';
     h+='<div class="kcard"><div class="kl">Este mes</div><div class="kv">'+fmtR(sumR(thisMoList))+'</div><div class="ks">'+thisMoList.length+' titulo'+(thisMoList.length!==1?'s':'')+'</div></div>';
     h+='</div>';
+    // Banner de recibos disponiveis na visao geral
+    const _rnG=S.simulatingSocio||(isSocio?S.identity?.name:'');
+    if(_rnG){
+      const _relG=cfg.receiptsReleased||{};
+      const _meses=Object.keys(_relG).filter(function(m){return _relG[m]&&_relG[m][_rnG];});
+      if(_meses.length){
+        h+='<div style="background:#EEF4FC;border:1.5px solid #C8D8F0;border-radius:12px;padding:12px 14px;margin-bottom:12px">'
+          +'<div style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:8px">&#128203; Recibos disponíveis para download</div>';
+        _meses.forEach(function(mk){
+          const p=mk.split('-');const lbl=MONTH_AB[parseInt(p[1],10)-1]+'/'+p[0];
+          h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+            +'<span style="font-size:13px;color:#1A4DAA;font-weight:500">&#128203; '+lbl+'</span>'
+            +'<button data-n="'+esc(_rnG)+'" data-m="'+mk+'" onclick="doGenReciboMes(this.dataset.n,this.dataset.m)" style="background:#0D1F3C;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">&#128196; PDF</button>'
+            +'</div>';
+        });
+        h+='</div>';
+      }
+    }
     // Reconciliacao (so para admin, nunca para socio ou simulacao)
     if(!isSocio&&!S.simulatingSocio&&cfg.socios.length){
       const unatt=unattributedTotal(filtered);
@@ -2364,6 +2395,21 @@ function rPanelExp(){
     h+='<div class="kcard kblue"><div class="kl">'+mLabel+'</div><div class="kv">'+fmtR(sumR(mList))+'</div><div class="ks">'+mList.length+' titulo'+(mList.length!==1?'s':'')+'</div></div>';
     h+='<div class="kcard"><div class="kl">'+nextLabel+'</div><div class="kv">'+fmtR(sumR(nextList))+'</div><div class="ks">proximo mes</div></div>';
     h+='</div>';
+    // Card de recibo disponivel (para socios e simulacao)
+    const _rName=S.simulatingSocio||(isSocio?S.identity?.name:'');
+    if(_rName){
+      const _rel=cfg.receiptsReleased||{};
+      const _mk=S.panelExpMonth;
+      if(_rel[_mk]&&_rel[_mk][_rName]){
+        h+='<div style="background:linear-gradient(135deg,#0D1F3C,#185FA5);border-radius:12px;padding:16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+          +'<div><div style="font-size:11px;color:rgba(255,255,255,.6);margin-bottom:3px">SEU RECIBO DESTE MÊS</div>'
+          +'<div style="font-size:16px;font-weight:700;color:#fff">&#128203; Recibo disponível</div>'
+          +'<div style="font-size:12px;color:rgba(255,255,255,.6);margin-top:2px">'+fmtR(sumR(mList))+' &middot; '+mList.length+' títulos</div>'
+          +'</div>'
+          +'<button data-n="'+esc(_rName)+'" data-m="'+_mk+'" onclick="doGenReciboMes(this.dataset.n,this.dataset.m)" style="background:#fff;color:#0D1F3C;border:none;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit">&#128196; Baixar PDF</button>'
+          +'</div>';
+      }
+    }
     // Botao exportar extrato (para socios e simulacao)
     const exportName=S.simulatingSocio||(isSocio?S.identity?.name:'');
     if(exportName){
@@ -2623,7 +2669,7 @@ function rSets(){
       +'<div style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:6px">&#128203; Recibos Mensais</div>'
       +'<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Gere recibos de reembolso e libere para os sócios visualizarem.</div>'
       +'<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);margin-bottom:3px">Mês de referência (AAAA-MM)</div>'
-      +'<input id="rec-month" value="'+esc(S.recMonth)+'" placeholder="2026-06" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit" oninput="S.recMonth=this.value"></div>';
+      +'<input id="rec-month" value="'+esc(S.recMonth)+'" placeholder="2026-06" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit" oninput="S.recMonth=this.value" onchange="S.recMonth=this.value"></div>';
     cfg.socios.forEach(function(s){
       const rel=(cfg.receiptsReleased||{});
       const mesKey=(document.getElementById&&document.getElementById('rec-month')?.value)||'';
@@ -2633,7 +2679,7 @@ function rSets(){
         +(cfg.sociosCNPJ?.[s]?'<div style="font-size:11px;color:var(--muted)">'+esc(cfg.sociosCNPJ[s])+'</div>':'')
         +'</div>'
         +'<div style="display:flex;gap:6px">'
-        +'<button class="filter-chip" style="background:#0D1F3C;color:#fff;border-color:#0D1F3C;font-size:11px;padding:5px 10px" data-s="'+esc(s)+'" onclick="gerarReciboPDF(this.dataset.s,S.recMonth||null)">&#128196; PDF</button>'
+        +'<button class="filter-chip" style="background:#0D1F3C;color:#fff;border-color:#0D1F3C;font-size:11px;padding:5px 10px" data-s="'+esc(s)+'" onclick="doGenRecibo(this.dataset.s)">&#128196; PDF</button>'
         +'<button class="filter-chip" style="'+(isReleased?'background:#2E7D32;color:#fff;border-color:#2E7D32':'background:#fff;color:#333;border-color:#ccc')+';font-size:11px;padding:5px 10px" data-s="'+esc(s)+'" data-rel="'+(isReleased?'false':'true')+'" onclick="doRelease(this.dataset.s,this.dataset.rel)">'+(isReleased?'&#128274; Ocultar':'&#128275; Liberar')+'</button>'
         +'</div></div>';
     });
