@@ -184,6 +184,7 @@ html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSys
 .empty h3{font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px}
 .empty p{font-size:13px}
 /* charts */
+.search-bar{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface);color:var(--text);margin-bottom:10px;box-sizing:border-box}
 .kpi2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .kcard{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px}
 .kblue{background:#EEF4FC;border-color:#C8D8F0}
@@ -314,9 +315,9 @@ const S={
   logImg:null, logImgB64:null, logImgMime:'image/jpeg',
   extracting:false, extracted:false, submitting:false,
   filter:'all', catFilter:'all', logFilter:'all', logSocioFilter:'all', logMonth:'all',
-  panelAc:'all', panelSocio:'all', panelView:'expenses', panelLogMonth:'all', panelExpMonth:'all',
+  panelAc:'all', panelSocio:'all', panelSocioFilter:'all', panelView:'expenses', panelLogMonth:'all', panelExpMonth:'all',
   identity:null, identityLoading:true, adminPinMode:false, pinMode:false, pinTarget:null,
-  editingExpId:null, editingLogId:null, simulatingSocio:null, unattModal:false, recMonth:'',
+  editingExpId:null, editingLogId:null, searchExp:'', simulatingSocio:null, unattModal:false, recMonth:'',
   form:{description:'',supplier:'',invoiceNo:'',amount:'',date:'',installments:'1',rateioMode:false,rateio:{},category:'',aircraft:'',pilot:'',passenger:'',notes:''},histMonth:'all',
   logForm:{date:'',departureFrom:'',departureTime:'',arrivalTo:'',arrivalTime:'',aircraft:'',pilot:'',passenger:'',notes:''}
 };
@@ -382,6 +383,22 @@ function listenExpenses(){
   if(unsubEx)unsubEx();
   unsubEx=fdb.collection('expenses').onSnapshot(function(snap){
     expenses=snap.docs.map(function(d){return d.data();});
+    // Limpeza automatica: remover nomes desconhecidos no rateio
+    const knownSocios=new Set(cfg.socios||[]);
+    if(knownSocios.size>0){
+      snap.docs.forEach(function(doc){
+        const x=doc.data();
+        if(x.rateio&&x.rateio.length){
+          const hasUnknown=x.rateio.some(function(r){return r.name&&!knownSocios.has(r.name)&&r.percent===0;});
+          if(hasUnknown){
+            const clean=x.rateio.filter(function(r){return knownSocios.has(r.name)&&r.percent>0;});
+            fdb.collection('expenses').doc(String(x.id)).update({rateio:clean}).then(function(){
+              console.log('Limpeza: rateio corrigido em',x.description);
+            });
+          }
+        }
+      });
+    }
     expenses.sort(function(a,b){return b.id-a.id;});
     if(S.tab!=='new')render();
     if(detailId)renderDetail();
@@ -606,7 +623,7 @@ async function submitExpense(){
   const pilotVal=(document.getElementById('f-pilot')?.value||'').trim();
   const passVal=(document.getElementById('f-pass')?.value||'').trim();
   const rateioArr=S.form.rateioMode&&Object.keys(S.form.rateio||{}).length
-    ?Object.entries(S.form.rateio).map(function(e){return{name:e[0],percent:parseFloat(e[1])};})
+    ?Object.entries(S.form.rateio).map(function(e){return{name:e[0],percent:parseFloat(e[1])};}).filter(function(r){return r.name&&r.percent>0;})
     :[];
   const baseExp={
     type:'expense',
@@ -1287,11 +1304,29 @@ function removeCat(name){cfg.categories=cfg.categories.filter(function(c){return
 function restoreDefaultCats(){DEFAULT_CATS.forEach(function(c){if(!cfg.categories.includes(c))cfg.categories.push(c);});saveSharedConfig();refreshCatList();}
 
 /* ===== EXPORT ===== */
+let _searchTimer=null;
+function setSearchExp(v){
+  S.searchExp=v;
+  clearTimeout(_searchTimer);
+  _searchTimer=setTimeout(function(){render();},350);
+}
 function getFilteredExpenses(){
   let list=forRole(expenses);
   if(S.filter!=='all')list=list.filter(function(x){return x.aircraft===S.filter;});
   if(S.catFilter!=='all')list=list.filter(function(x){return (x.category||'')===S.catFilter;});
   if(S.histMonth!=='all')list=list.filter(function(x){return (x.dueDate||x.date||'').startsWith(S.histMonth);});
+  if(S.searchExp&&S.searchExp.trim()){
+    const q=S.searchExp.trim().toLowerCase();
+    list=list.filter(function(x){
+      if((x.description||'').toLowerCase().includes(q))return true;
+      if((x.supplier||'').toLowerCase().includes(q))return true;
+      if((x.notes||'').toLowerCase().includes(q))return true;
+      if((x.category||'').toLowerCase().includes(q))return true;
+      if((x.passenger||'').toLowerCase().includes(q))return true;
+      if(x.rateio&&x.rateio.some(function(r){return (r.name||'').toLowerCase().includes(q);}))return true;
+      return false;
+    });
+  }
   return list.slice().sort(function(a,b){return (a.dueDate||a.date||'').localeCompare(b.dueDate||b.date||'');});
 }
 function getExportLabel(){
@@ -1496,6 +1531,60 @@ async function exportSocioStatementPDF(name, monthKey){
   }catch(err){console.error(err);toast('Erro ao gerar PDF');}
 }
 
+async function exportMonthTotal(monthKey){
+  toast('Gerando Excel...');
+  try{
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    const list=expenses.filter(function(x){return (x.dueDate||x.date||'').startsWith(monthKey);});
+    list.sort(function(a,b){return (a.dueDate||a.date||'').localeCompare(b.dueDate||b.date||'');});
+    const p=monthKey.split('-');const periodo=MONTH_AB[parseInt(p[1],10)-1]+' de '+p[0];
+    const aoa=[['AeroExpense \u2014 Rateio por S\u00f3cio'],['Per\u00edodo: '+periodo],['Gerado em: '+fmtD(td())],[],
+      ['Data','Descri\u00e7\u00e3o','Fornecedor','Categoria','S\u00f3cio','Valor S\u00f3cio (R$)','% Rateio','Valor Total (R$)','Parcela','Aeronave','Observa\u00e7\u00e3o']];
+    const totaisSocio={};
+    list.forEach(function(x){
+      const amt=parseFloat(x.amount)||0;
+      const inst=x.installments>1?x.installmentNo+'/'+x.installments:'\u00c0 vista';
+      const base=[fmtD(x.dueDate||x.date),x.description||'',x.supplier||'',x.category||''];
+      if(x.rateio&&x.rateio.length){
+        // Uma linha por sócio no rateio
+        x.rateio.forEach(function(r){
+          const pct=parseFloat(r.percent)||0;
+          const val=Math.round(amt*pct)/100;
+          aoa.push(base.concat([r.name,val,parseFloat(pct.toFixed(1)),amt,inst,acLbl(x.aircraft),x.notes||'']));
+          totaisSocio[r.name]=(totaisSocio[r.name]||0)+val;
+        });
+      }else if((x.passenger||'')==='__todos__'){
+        // Condomínio: uma linha por sócio dividido igualmente
+        const n=Math.max(1,cfg.socios.length);
+        cfg.socios.forEach(function(s){
+          const val=Math.round(amt*100/n)/100;
+          aoa.push(base.concat([s,val,parseFloat((100/n).toFixed(1)),amt,inst,acLbl(x.aircraft),x.notes||'']));
+          totaisSocio[s]=(totaisSocio[s]||0)+val;
+        });
+      }else{
+        // Despesa direta
+        const pass=x.passenger||'';
+        aoa.push(base.concat([pass,amt,100,amt,inst,acLbl(x.aircraft),x.notes||'']));
+        if(pass)totaisSocio[pass]=(totaisSocio[pass]||0)+amt;
+      }
+    });
+    // Resumo por sócio
+    aoa.push([]);aoa.push(['RESUMO POR S\u00d3CIO','','','','','','','','','','']);
+    aoa.push(['S\u00f3cio','Total (R$)','','','','','','','','','']);
+    Object.keys(totaisSocio).forEach(function(s){aoa.push([s,totaisSocio[s],'','','','','','','','','']);});
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:10},{wch:32},{wch:18},{wch:14},{wch:24},{wch:14},{wch:10},{wch:14},{wch:10},{wch:18},{wch:30}];
+    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:10}}];
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Rateio por Socio');
+    const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    const blob=new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');
+    a.href=url;a.download='RateioMes-'+monthKey+'.xlsx';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    toast('Excel de rateio exportado!');
+  }catch(err){console.error(err);toast('Erro: '+err.message);}
+}
+
 async function exportSocioStatement(name, monthKey){
   toast('Gerando extrato...');
   try{
@@ -1681,6 +1770,15 @@ function closeUnattModal(){S.unattModal=false;render();}
 
 function catColor(cat){const i=cfg.categories.indexOf(cat);return CAT_COLORS[i>=0?i%CAT_COLORS.length:7];}
 function setPanelExpMonth(m){S.panelExpMonth=m;render();}
+function setPanelSocioFilter(v){S.panelSocioFilter=v;render();}
+function rSocioFilterChips(){
+  if(!(S.identity?.role==='socio'||S.simulatingSocio))return '';
+  return '<div class="filter-bar">'
+    +'<button class="filter-chip'+(S.panelSocioFilter==='all'?' on':'')+'" data-v="all" onclick="setPanelSocioFilter(this.dataset.v)">Todas</button>'
+    +'<button class="filter-chip'+(S.panelSocioFilter==='__todos__'?' on':'')+'" data-v="__todos__" onclick="setPanelSocioFilter(this.dataset.v)">&#11088; Condomínio</button>'
+    +'</div>';
+}
+
 function setPanelLogMonth(m){S.panelLogMonth=m;render();}
 function flightMins(x){
   if(!x.departureTime||!x.arrivalTime)return null;
@@ -1895,6 +1993,25 @@ function render(){
       +'<button onclick="closeUnattModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1">&#10005;</button>'
       +'</div>'
       +'<div class="unatt-modal-body">';
+    // Nomes no rateio que não são sócios cadastrados
+    const knownNames=new Set(cfg.socios);
+    const unknownRateio=allExp.filter(function(x){
+      return x.rateio&&x.rateio.some(function(r){return r.name&&!knownNames.has(r.name);});
+    });
+    if(unknownRateio.length){
+      h+='<div style="background:#FEF3CD;border:1.5px solid #F5A623;border-radius:10px;padding:12px 14px;margin-bottom:12px">'
+        +'<div style="font-size:12px;font-weight:700;color:#8A6200;margin-bottom:8px">&#9888;&#65039; Nomes desconhecidos no rateio ('+unknownRateio.length+')</div>';
+      unknownRateio.forEach(function(x){
+        const bad=x.rateio.filter(function(r){return !knownNames.has(r.name);}).map(function(r){return r.name+' ('+r.percent+'%)';}).join(', ');
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:rgba(255,255,255,.6);border-radius:8px;margin-bottom:6px">'
+          +'<div><div style="font-size:13px;font-weight:500">'+esc(x.description)+'</div>'
+          +'<div style="font-size:11px;color:#8A6200;margin-top:2px">Nome desconhecido: <strong>'+esc(bad)+'</strong></div>'
+          +'<div style="font-size:11px;color:var(--muted)">'+fmtD(x.dueDate||x.date)+' &middot; '+fmtR(x.amount)+'</div></div>'
+          +'<button class="mbtn" data-id="'+x.id+'" onclick="closeUnattModal();editExpense(this.dataset.id)" style="font-size:13px">&#9998; Editar</button>'
+          +'</div>';
+      });
+      h+='</div>';
+    }
     if(!uList.length){
       h+='<div class="empty" style="padding:24px 0"><div class="ei">&#10003;</div><h3>Tudo atribuido!</h3></div>';
     }else{
@@ -2188,7 +2305,8 @@ function rHist(){
     });
   }
   if(base.length){
-    if(isSocio||(S.simulatingSocio)){
+  
+  if(isSocio||(S.simulatingSocio)){
       const eName=S.simulatingSocio||(S.identity?.name||'');
       h+='<div style="display:flex;gap:8px;margin-bottom:8px">'
         +'<button class="export-btn" style="flex:1;background:#0D1F3C;color:#fff;border:none" data-name="'+esc(eName)+'" data-m="all" onclick="exportSocioStatement(this.dataset.name,this.dataset.m)">&#128202; Excel completo</button>'
@@ -2295,26 +2413,36 @@ function rPanel(){
 }
 
 function rPanelExp(){
-  let base=forRole(expenses);
-  if(!base.length)return '<div class="empty"><div class="ei">&#128202;</div><h3>Sem despesas</h3><p>Adicione lancamentos para ver os graficos</p></div>';
   const isSocio=S.identity?.role==='socio';
+  // Para filtro Condominio: usar valores originais (total completo)
+  let base;
+  if(S.panelSocio==='__todos__'){
+    base=expenses.filter(function(x){return (x.passenger||'')==='__todos__';});
+  }else{
+    base=forRole(expenses);
+  }
+  if(!base.length)return '<div class="empty"><div class="ei">&#128202;</div><h3>Sem despesas</h3><p>Adicione lancamentos para ver os graficos</p></div>';
   const today=td(),thisMonth=today.slice(0,7);
   let h='';
-  // Filtros aeronave e socio
+  // Chips Condominio/Pessoal/Tudo para socios
+  if(isSocio||S.simulatingSocio){
+  }
   if(cfg.ac.length>1){h+='<div class="filter-bar"><button class="filter-chip'+(S.panelAc==='all'?' on':'')+'" data-f="all" onclick="setPanelAc(this.dataset.f)">Todas aeronaves</button>';cfg.ac.forEach(function(a){h+='<button class="filter-chip'+(S.panelAc===a.id?' on':'')+'" data-f="'+a.id+'" onclick="setPanelAc(this.dataset.f)">'+esc(a.name)+'</button>';});h+='</div>';}
-  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.panelSocio==='all'?' on':'')+'" data-s="all" onclick="setPanelSocio(this.dataset.s)">Condomínio</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.panelSocio===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setPanelSocio(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
+  if(!isSocio&&cfg.socios.length){h+='<div class="filter-bar"><button class="filter-chip'+(S.panelSocio==='__todos__'?' on':'')+'" data-s="__todos__" onclick="setPanelSocio(this.dataset.s)">&#11088; Condomínio</button>';cfg.socios.forEach(function(s){h+='<button class="filter-chip'+(S.panelSocio===s?' on':'')+'" data-s="'+esc(s)+'" onclick="setPanelSocio(this.dataset.s)">'+esc(s)+'</button>';});h+='</div>';}
   let filtered=base;
   if(S.panelAc!=='all')filtered=filtered.filter(function(x){return x.aircraft===S.panelAc;});
   if(!isSocio&&!S.simulatingSocio&&S.panelSocio!=='all'){
     const ps=S.panelSocio;
-    // Incluir despesas diretas, rateio e condominio
+    // Filtro especial para Condominio
+    if(ps==='__todos__'){
+      filtered=filtered.filter(function(x){return (x.passenger||'')==='__todos__';});
+    }else{
     filtered=filtered.filter(function(x){
       if((x.passenger||'')===ps)return true;
       if((x.passenger||'')==='__todos__')return true;
       if(x.rateio&&x.rateio.some(function(r){return r.name===ps;}))return true;
       return false;
     });
-    // Ajustar valores para a proporção do sócio
     filtered=filtered.map(function(x){
       if(x.rateio&&x.rateio.length){
         const r=x.rateio.find(function(r){return r.name===ps;});
@@ -2327,27 +2455,25 @@ function rPanelExp(){
       }
       return x;
     });
+    } // close else
   }
-  // Navegacao por mes
   const months=getExpMonths(filtered);
   h+='<div class="filter-bar"><button class="filter-chip'+(S.panelExpMonth==='all'?' on':'')+'" data-m="all" onclick="setPanelExpMonth(this.dataset.m)">Visao geral</button>';
   months.forEach(function(m){const p=m.split('-');const lbl=MONTH_AB[parseInt(p[1],10)-1]+'/'+p[0].slice(2);h+='<button class="filter-chip'+(S.panelExpMonth===m?' on':'')+'" data-m="'+m+'" onclick="setPanelExpMonth(this.dataset.m)">'+lbl+'</button>';});
   h+='</div>';
   if(S.panelExpMonth==='all'){
-    // Visao geral: KPI + graficos
     const thisMoList=filtered.filter(function(x){return (x.dueDate||x.date||'').slice(0,7)===thisMonth;});
     h+='<div class="kpi2">';
     h+='<div class="kcard kblue"><div class="kl">Total geral</div><div class="kv">'+fmtR(sumR(filtered))+'</div><div class="ks">'+filtered.length+' titulo'+(filtered.length!==1?'s':'')+'</div></div>';
     h+='<div class="kcard"><div class="kl">Este mes</div><div class="kv">'+fmtR(sumR(thisMoList))+'</div><div class="ks">'+thisMoList.length+' titulo'+(thisMoList.length!==1?'s':'')+'</div></div>';
     h+='</div>';
-    // Banner de recibos disponiveis na visao geral
     const _rnG=S.simulatingSocio||(isSocio?S.identity?.name:'');
     if(_rnG){
       const _relG=cfg.receiptsReleased||{};
       const _meses=Object.keys(_relG).filter(function(m){return _relG[m]&&_relG[m][_rnG];});
       if(_meses.length){
         h+='<div style="background:#EEF4FC;border:1.5px solid #C8D8F0;border-radius:12px;padding:12px 14px;margin-bottom:12px">'
-          +'<div style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:8px">&#128203; Recibos disponíveis para download</div>';
+          +'<div style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:8px">&#128203; Recibos disponíveis</div>';
         _meses.forEach(function(mk){
           const p=mk.split('-');const lbl=MONTH_AB[parseInt(p[1],10)-1]+'/'+p[0];
           h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
@@ -2391,9 +2517,28 @@ function rPanelExp(){
     const nextLabel=MONTH_AB[nextNum-1]+'/'+String(nextYear).slice(2);
     const mList=filtered.filter(function(x){return (x.dueDate||x.date||'').startsWith(S.panelExpMonth);});
     const nextList=filtered.filter(function(x){return (x.dueDate||x.date||'').startsWith(nextKey);});
+    // Para sócios: mostrar valor deles + total geral do mês
+    const isSocioView2=isSocio||!!S.simulatingSocio;
+    const totalMesGeral=isSocioView2?sumR(expenses.filter(function(x){return (x.dueDate||x.date||'').startsWith(S.panelExpMonth);})):0;
     h+='<div class="kpi2">';
-    h+='<div class="kcard kblue"><div class="kl">'+mLabel+'</div><div class="kv">'+fmtR(sumR(mList))+'</div><div class="ks">'+mList.length+' titulo'+(mList.length!==1?'s':'')+'</div></div>';
-    h+='<div class="kcard"><div class="kl">'+nextLabel+'</div><div class="kv">'+fmtR(sumR(nextList))+'</div><div class="ks">proximo mes</div></div>';
+    const _expN=S.simulatingSocio||(isSocio?S.identity?.name:'');
+    if(isSocioView2&&_expN){
+      h+='<div class="kcard kblue" style="cursor:pointer" title="Clique para exportar seu extrato" data-n="'+esc(_expN)+'" data-m="'+S.panelExpMonth+'" onclick="exportSocioStatement(this.dataset.n,this.dataset.m)">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+        +'<div class="kl">'+mLabel+'</div><span style="font-size:14px">&#128228;</span></div>'
+        +'<div class="kv">'+fmtR(sumR(mList))+'</div>'
+        +'<div class="ks">'+mList.length+' titulo'+(mList.length!==1?'s':'')+' • sua parte</div>'
+        +'</div>';
+      h+='<div class="kcard" style="cursor:pointer" title="Clique para exportar total do mês" data-m="'+S.panelExpMonth+'" onclick="exportMonthTotal(this.dataset.m)">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+        +'<div class="kl">Total do mês</div><span style="font-size:14px">&#128228;</span></div>'
+        +'<div class="kv">'+fmtR(totalMesGeral)+'</div>'
+        +'<div class="ks">todas as despesas</div>'
+        +'</div>';
+    }else{
+      h+='<div class="kcard kblue"><div class="kl">'+mLabel+'</div><div class="kv">'+fmtR(sumR(mList))+'</div><div class="ks">'+mList.length+' titulo'+(mList.length!==1?'s':'')+'</div></div>';
+      h+='<div class="kcard"><div class="kl">'+nextLabel+'</div><div class="kv">'+fmtR(sumR(nextList))+'</div><div class="ks">proximo mes</div></div>';
+    }
     h+='</div>';
     // Card de recibo disponivel (para socios e simulacao)
     const _rName=S.simulatingSocio||(isSocio?S.identity?.name:'');
